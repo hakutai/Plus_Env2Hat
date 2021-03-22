@@ -3,6 +3,22 @@
     Github: https://github.com/adafruit/Adafruit_BMP280_Library
 */
 
+/**
+ * @file Plus_Env2Hat.ino
+ * 
+ * @note 色指定が演算式になっているから色決定後に定数にすること
+ * @note M5.Lcdに直接書き込んだ後は「M5.Lcd.textWidth」が正しい値を返してこないポイ（値が倍になるみたい、追試必要）
+ *         すべてダブルバッファーを使用すること。deepsleep解除後は正常になるので回避方法はあるかも？
+ * @note font1-size2は９ｘ１２ピクセルで作る
+ * 
+ * 
+ * @version
+ *   2021/03/04 1.00   履歴にＷBGT指数の表示 
+ *   2021/03/05 1.01   外部電源中にディープスリープから復帰した場合は自動でディープスリープへ
+ *   2021/03/22 1.02   外部電源充電中に指定電圧（BATTERMAX）以下時に確認用にLEDを点灯
+ * 
+*/
+
 #include <M5StickCPlus.h>
 #include <math.h>
 #include "SHT3X.h"
@@ -16,10 +32,10 @@
 /*---------------------------------------------------------
  * 各センサー用変数
  */
-SHT3X                       sht3x;              // 温湿度センサー
-Adafruit_BMP280             bmp280;             // 気圧センサー
-BMM150                      bmm150 = BMM150();  // 地磁気センサー
-RTC_DATA_ATTR bmm150_mag_data value_offset = { 0, 0, 0 };         // 地磁気センサの補正値
+SHT3X                           sht3x;                              // 温湿度センサー
+Adafruit_BMP280                 bmp280;                             // 気圧センサー
+BMM150                          bmm150 = BMM150();                  // 地磁気センサー
+RTC_DATA_ATTR bmm150_mag_data   bmm150Offset = { 0, 0, 0 };         // 地磁気センサの補正値
 
 /*---------------------------------------------------------
  * 大域変数　
@@ -50,6 +66,10 @@ uint32_t                  demoMode      = 0;    // デモモード　0:オフ,>0
 
 uint32_t    powerOffTime = defaultPowerOffTime;    // ディープスリープへ移行する時間
 
+#define     LED_PIN       GPIO_NUM_10           // 付属LEDのGPIOの番号
+#define     BATTERYMAX    4.15                  // 満充電判断の閾値   個体により目安にする電圧が違う、個々に値を決めること 
+ 
+
         // 画面用　ダブルバッファー他
 int16_t       scrnWidth,scrnHeight;   // スクリーン（LCD)縦横
 TFT_eSprite   lcdDblBuf = TFT_eSprite(&M5.Lcd);   // ダブルバッファー
@@ -65,10 +85,10 @@ uint32_t      update_time   = 0;                  // ＬCD書き換え間隔管�
 #define PRESSURE_DN       2             //       5hPa以上下がる
 typedef struct PressArray_ {            //  RTCメモリへ保存構造体
   int      day;                         //    日
+  uint8_t  pressureUpDn;                //    気圧変化　上記３つの定数を入れる
+  int      pressure;                    //    気圧
   int      temperature;                 //    温度
   int      humidity;                    //    湿度
-  int      pressure;                    //    気圧
-  uint8_t  pressureUpDn;                //    気圧変化　上記３つの定数を入れる
 } PressArray;
 
 #define CLEAR_PRESSARRAY {0,0,0,0,0}    // 構造体初期化値
@@ -133,6 +153,8 @@ void setup() {
   M5.Lcd.setRotation(lcdDirection);
   M5.Lcd.fillScreen(BLACK);
   M5.Axp.ScreenBreath(lcdBrightness);              // LCDの明るさ　９
+  pinMode(LED_PIN,OUTPUT);
+  digitalWrite(LED_PIN,HIGH);
   scrnWidth  = M5.Lcd.width();
   scrnHeight = M5.Lcd.height();
 
@@ -313,12 +335,20 @@ void loop() {
         presAry[i].pressure     = (int)pressure;
       }
     }
-
+        /*--- 充電中はLEDを点灯 外部電源＆手動で稼働している ---*/
+    if (extPW && (wakeUpCause != ESP_SLEEP_WAKEUP_TIMER)) {  
+      pwVolt = M5.Axp.GetBatVoltage();
+      Serial.printf("Battery %f(%f)\r\n",pwVolt,BATTERYMAX);
+      if (pwVolt < BATTERYMAX) digitalWrite(LED_PIN,LOW);
+      else                     digitalWrite(LED_PIN,HIGH);
+    } else {
+      digitalWrite(LED_PIN,HIGH);
+    }
   /*--- DeepSleep の設定 
           バッテリーまたはdeepsleepから起動した場合は再びdeepsleepへ
   */
-    if (!extPW || (wakeUpCause == ESP_SLEEP_WAKEUP_TIMER)) {  
-      if (millis() > powerOffTime) {     // 20sec
+    if (!extPW || (wakeUpCause == ESP_SLEEP_WAKEUP_TIMER)) {             // 充電池駆動
+      if   (millis() > powerOffTime) {
           //---ここからは AXP192::DeepSleep(uint64_t time_in_us)の必要部分の抜き出し
          xSetSleep();
          esp_sleep_enable_timer_wakeup(WAKEUP_TIME);      // 30分スリープ
@@ -328,7 +358,7 @@ void loop() {
     }
   }
 
-  delay(50);
+  delay(100);
 }
 /*=====================================================================
  * Functions
@@ -365,8 +395,8 @@ void loop() {
     delay(200);
   }
 
-  value_offset.x = value_x_min + (value_x_max - value_x_min)/2;
-  value_offset.y = value_y_min + (value_y_max - value_y_min)/2;
+  bmm150Offset.x = value_x_min + (value_x_max - value_x_min)/2;
+  bmm150Offset.y = value_y_min + (value_y_max - value_y_min)/2;
 }
 
 /*=====================================================================================================
@@ -648,8 +678,8 @@ void DispScrnMode2() {
 
 
   bmm150.read_mag_data();
-  value.x = bmm150.raw_mag_data.raw_datax - value_offset.x;
-  value.y = bmm150.raw_mag_data.raw_datay - value_offset.y;
+  value.x = bmm150.raw_mag_data.raw_datax - bmm150Offset.x;
+  value.y = bmm150.raw_mag_data.raw_datay - bmm150Offset.y;
 
   float heading = atan2(value.x, value.y) + PI / 2.0;
 
