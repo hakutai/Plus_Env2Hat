@@ -1,8 +1,8 @@
+# 持ち歩き温湿度計（Pocket environment meter）
+
 [English](README.md) | 日本語
 
 <img src="Plus_Env2Hat_jp.jpg" width="320px">
-
-# 持ち歩き温湿度計（Pocket environment meter）
 
 ４つの機能をＡボタン（Homeボタン・Ｍ５ボタン）で切り替え、自動でディープスリープに入るため電源オフ操作は不要、起動はＡボタン。
 
