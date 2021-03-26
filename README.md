@@ -1,1 +1,1 @@
-![english manual](Manual_en.jpg)
+![english manual](Plus_Env2Hat_en.jpg)
