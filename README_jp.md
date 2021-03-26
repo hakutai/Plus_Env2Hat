@@ -1,3 +1,5 @@
+[English](README.md)
+
 <img src="Plus_Env2Hat_jp.jpg" width="320px">
 
 # 持ち歩き温湿度計（Pocket environment meter）
@@ -48,7 +50,7 @@ Bボタンで設定画面になります。
 「RETURN」もしくはスリープ時間が経つとメイン画面へ戻ります。
 
 #### 設定項目
-項目 | 内容 |規定値
+項目 |  | 内容 |規定値
 ----|----|----|----
 Scrn Direction | 液晶の向き | 液晶の表示向きの変更で使いやすい方向に。利き手やケーブル接続時に変更してください。 | LEFT
 Scrn Brightness | 液晶の明るさ | 見やすい明るさで、７から１５ | 9
