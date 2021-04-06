@@ -6,18 +6,16 @@
 /**
  * @file Plus_Env2Hat.ino
  * 
- * @note 色指定が演算式になっているから色決定後に定数にすること
- * @note M5.Lcdに直接書き込んだ後は「M5.Lcd.textWidth」が正しい値を返してこないポイ（値が倍になるみたい、追試必要）
- *         すべてダブルバッファーを使用すること。deepsleep解除後は正常になるので回避方法はあるかも？
- * @note font1-size2は９ｘ１２ピクセルで作る
- * 
  * 
  * @version
- *   2021/03/04 1.00   履歴にＷBGT指数の表示 
- *   2021/03/05 1.01   外部電源中にディープスリープから復帰した場合は自動でディープスリープへ
- *   2021/03/22 1.02   外部電源充電中に指定電圧（BATTERMAX）以下時に確認用にLEDを点灯
+ *   2021/04/05 1.03    ディープスリープを正時と３０分に起動するよう変更
+ *   2021/03/29 1.02.01 充電をbattery(GetBatCurrent())の正負で判断へ変更
+ *   2021/03/22 1.02    外部電源充電中に指定電圧（BATTERMAX）以下時に確認用にLEDを点灯
+ *   2021/03/05 1.01    外部電源中にディープスリープから復帰した場合は自動でディープスリープへ
+ *   2021/03/04 1.00    履歴にＷBGT指数の表示 
  * 
 */
+
 
 #include <M5StickCPlus.h>
 #include <math.h>
@@ -54,8 +52,8 @@ RTC_DateTypeDef           rtcDate;    // 年月日
 RTC_TimeTypeDef           rtcTime;    // 日時秒
 
         // 動作設定用
-#define WAKEUP_TIME       SLEEP_MIN(30)         // ディープ休眠時間
-#define DEMOTIME          5000                  // デモモードの画面切り替え時間（5000ミリ秒）
+#define WAKEUP_TIME       30          // ディープ休眠時間（分）
+#define DEMOTIME          5000        // デモモードの画面切り替え時間（5000ミリ秒）
 
 RTC_DATA_ATTR uint8_t     scrnMode      = 0;    // LCD表示内容　(0:温度・湿度,1:気圧・高度,2:方位,3:履歴）
 RTC_DATA_ATTR uint8_t     lcdDirection  = 1;    // LCDの向き　 1 or 3  
@@ -67,7 +65,6 @@ uint32_t                  demoMode      = 0;    // デモモード　0:オフ,>0
 uint32_t    powerOffTime = defaultPowerOffTime;    // ディープスリープへ移行する時間
 
 #define     LED_PIN       GPIO_NUM_10           // 付属LEDのGPIOの番号
-#define     BATTERYMAX    4.15                  // 満充電判断の閾値   個体により目安にする電圧が違う、個々に値を決めること 
  
 
         // 画面用　ダブルバッファー他
@@ -337,10 +334,9 @@ void loop() {
     }
         /*--- 充電中はLEDを点灯 外部電源＆手動で稼働している ---*/
     if (extPW && (wakeUpCause != ESP_SLEEP_WAKEUP_TIMER)) {  
-      pwVolt = M5.Axp.GetBatVoltage();
-      Serial.printf("Battery %f(%f)\r\n",pwVolt,BATTERYMAX);
-      if (pwVolt < BATTERYMAX) digitalWrite(LED_PIN,LOW);
-      else                     digitalWrite(LED_PIN,HIGH);
+      pwCurt = M5.Axp.GetBatCurrent(); //　バッテリー放電電流
+      if (pwCurt > 0.0) digitalWrite(LED_PIN,LOW);
+      else              digitalWrite(LED_PIN,HIGH);
     } else {
       digitalWrite(LED_PIN,HIGH);
     }
@@ -349,16 +345,18 @@ void loop() {
   */
     if (!extPW || (wakeUpCause == ESP_SLEEP_WAKEUP_TIMER)) {             // 充電池駆動
       if   (millis() > powerOffTime) {
+         i = int(rtcTime.Minutes / WAKEUP_TIME + 1) * WAKEUP_TIME - rtcTime.Minutes;       // 30分間隔
+
           //---ここからは AXP192::DeepSleep(uint64_t time_in_us)の必要部分の抜き出し
          xSetSleep();
-         esp_sleep_enable_timer_wakeup(WAKEUP_TIME);      // 30分スリープ
-         esp_deep_sleep(WAKEUP_TIME);
+         esp_sleep_enable_timer_wakeup(SLEEP_MIN(i));      // 30分スリープ
+         esp_deep_sleep(SLEEP_MIN(i));
           //--- ここまで
       }
     }
   }
 
-  delay(100);
+  delay(50);
 }
 /*=====================================================================
  * Functions
